@@ -3,12 +3,13 @@
 # requires-python = ">=3.8"
 # dependencies = [
 #   "watchdog",
+#   "pydantic",
 # ]
 # ///
 """
-Claude Code Transcript Capture
+Claude Code Transcript Capture - Refactored Version
 Watches a Claude Code transcript file (JSONL) and incrementally processes new objects
-into simplified conversation files (JSON) - NOW WITH EVENT-DRIVEN MONITORING!
+into simplified conversation files (JSON) - NOW WITH IMPROVED ARCHITECTURE!
 """
 
 import json
@@ -17,33 +18,405 @@ import argparse
 import time
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Union, Literal, Annotated
 from dataclasses import dataclass
+from abc import ABC, abstractmethod
+from enum import Enum
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
-# NEW: Import watchdog components
+# Import watchdog components
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
+# Define raw object types to ignore BEFORE Pydantic validation.
+# These objects have a different structure and would cause a validation error.
+IGNORED_OBJECT_TYPES = {"summary"}
+
+# Define message types to ignore AFTER Pydantic validation.
+# These objects are structurally valid but are not part of the main conversation.
+IGNORED_MESSAGE_TYPES = {"system"}
+
+# ==============================================================================
+# DOMAIN MODELS
+# ==============================================================================
+
+
+class OperationType(Enum):
+    """Types of operations in conversations"""
+
+    RESPONSE = "response"
+    TOOL_TASK = "Tool:Task"
+    TOOL_READ = "Tool:Read"
+    TOOL_WRITE = "Tool:Write"
+    TOOL_BASH = "Tool:Bash"
+    TOOL_EDIT = "Tool:Edit"
+    TOOL_MULTI_EDIT = "Tool:MultiEdit"
+    TOOL_WEB_FETCH = "Tool:WebFetch"
+    TOOL_WEB_SEARCH = "Tool:WebSearch"
+    TOOL_GLOB = "Tool:Glob"
+    TOOL_GREP = "Tool:Grep"
+    TOOL_MCP = "Tool:MCP"
+    TOOL_OTHER = "Tool:Other"
+
+
+# Define models for the different types of content within a message
+class TextContent(BaseModel):
+    type: Literal["text"]
+    text: str
+
+
+class ToolUseContent(BaseModel):
+    type: Literal["tool_use"]
+    id: str
+    name: str
+    input: Dict[str, Any]
+
+
+class ToolResultContent(BaseModel):
+    type: Literal["tool_result"]
+    tool_use_id: str
+    # FIX 3: Allow content to be a string OR a list of text blocks.
+    content: Union[str, List[TextContent]]
+    is_error: bool = False
+
+
+# A discriminated union will automatically parse into the correct model
+# based on the 'type' field.
+ContentItem = Annotated[
+    Union[TextContent, ToolUseContent, ToolResultContent],
+    Field(discriminator="type"),
+]
+
+
+class MessageContent(BaseModel):
+    content: List[ContentItem]
+
+    # FIX 2: Add a validator to handle cases where 'content' is a string
+    @field_validator("content", mode="before")
+    @classmethod
+    def convert_str_to_content_list(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            # If the input is a plain string, wrap it in the expected structure
+            return [{"type": "text", "text": v}]
+        return v
+
+
+# This is the top-level model for each line in the JSONL file.
+class TranscriptLine(BaseModel):
+    uuid: str
+    parent_uuid: Optional[str] = Field(None, alias="parentUuid")
+    timestamp: str
+    is_sidechain: bool = Field(alias="isSidechain")
+    message_type: str = Field(alias="type")
+    # FIX 1: Make the message field optional to handle metadata lines
+    message: Optional[MessageContent] = None
+    is_meta: bool = Field(False, alias="isMeta")
 
 
 @dataclass
 class ConversationMessage:
     """Simplified conversation message structure"""
 
-    id: str  # Format: order + "-" + first_5_digits_of_uuid
-    parent_id: Optional[str]
+    id: str  # 5-character UUID prefix
+    parent_id: Optional[str]  # 5-character UUID prefix
     timestamp: str
     speaker: str
-    operation: str
+    operation: OperationType
     message: str
     is_sidechain: bool
-    chain_id: Optional[str] = None  # To track which branch conversation this belongs to
-    uuid: str = ""  # Keep original UUID for internal processing
-    order: str = ""  # Keep order for internal processing
-    original_parent_uuid: Optional[str] = None  # Keep original parent UUID for relationship processing
-    original_chain_id: Optional[str] = None  # Keep original chain UUID for relationship processing
+    chain_id: Optional[str] = None
+    order: str = ""
+
+    # Internal processing fields
+    _uuid: str = ""
+    _original_parent_uuid: Optional[str] = None
+    _original_chain_id: Optional[str] = None
 
 
-# NEW: Create a dedicated event handler class
+# ==============================================================================
+# JSON PARSER (REFACTORED FOR EFFICIENCY)
+# ==============================================================================
+
+
+class JSONParser:
+    """Handles reading and parsing JSONL files efficiently."""
+
+    def __init__(self):
+        self.file_handle = None
+        self.last_pos = 0
+        self.filepath = ""
+
+    def open_file(self, filepath: str):
+        """Opens the transcript file and seeks to the end."""
+        try:
+            self.filepath = filepath
+            # Open in read mode 'r' with UTF-8 encoding
+            self.file_handle = open(self.filepath, "r", encoding="utf-8")
+            # Go to the end of the file to ignore existing content initially
+            self.file_handle.seek(0, 2)
+            self.last_pos = self.file_handle.tell()
+            print(f"Opened {filepath}, starting at position {self.last_pos}.")
+        except FileNotFoundError:
+            print(
+                f"Input file {filepath} not found yet. Will wait for it to be created.",
+                file=sys.stderr,
+            )
+            self.file_handle = None  # Ensure handle is None if file doesn't exist
+        except Exception as e:
+            print(f"Error opening file: {e}", file=sys.stderr)
+            self.file_handle = None
+
+    def close_file(self):
+        """Closes the file handle gracefully."""
+        if self.file_handle:
+            self.file_handle.close()
+            self.file_handle = None
+            print("\nClosed transcript file.")
+
+    def read_new_objects(self) -> List[TranscriptLine]:
+        """Read only new lines from the file since the last check."""
+        # If the file wasn't open (e.g., didn't exist before), try opening it now.
+        if not self.file_handle and os.path.exists(self.filepath):
+            self.open_file(self.filepath)
+
+        if not self.file_handle:
+            return []
+
+        # Check if the file was truncated (smaller than our last position)
+        current_size = os.path.getsize(self.filepath)
+        if current_size < self.last_pos:
+            print("File truncated. Resetting to beginning.", file=sys.stderr)
+            self.last_pos = 0
+
+        # Seek to the last known position
+        self.file_handle.seek(self.last_pos)
+
+        # Read all new content from this position
+        new_content = self.file_handle.read()
+
+        # Update the last position to the new end of the file
+        self.last_pos = self.file_handle.tell()
+
+        if not new_content:
+            return []
+
+        json_objects = self._parse_jsonl_content(
+            new_content
+        )  # This method is unchanged
+
+        # CHANGED: Use Pydantic for parsing and validation
+        validated_objects = []
+        for obj in json_objects:
+            if obj.get("type") in IGNORED_OBJECT_TYPES:
+                continue
+            try:
+                # Pydantic handles all the validation and conversion!
+                line_model = TranscriptLine.model_validate(obj)
+                validated_objects.append(line_model)
+            except ValidationError as e:
+                # Pydantic gives detailed, human-readable errors.
+                print(f"Skipping object due to validation error: {e}", file=sys.stderr)
+                print(f"Invalid object data: {str(obj)[:200]}", file=sys.stderr)
+
+        return validated_objects
+
+    def _parse_jsonl_content(self, content: str) -> List[Dict[str, Any]]:
+        """Parse JSONL content into list of dictionaries"""
+        json_objects = []
+
+        for line_num, line in enumerate(content.splitlines(), 1):
+            line = line.strip()
+            if not line:
+                continue
+
+            try:
+                obj = json.loads(line)
+                json_objects.append(obj)
+            except json.JSONDecodeError as e:
+                print(f"Error parsing JSON on line {line_num}: {e}", file=sys.stderr)
+                print(f"Line content (first 200 chars): {line[:200]}", file=sys.stderr)
+
+        return json_objects
+
+
+# ==============================================================================
+# TOOL PROCESSOR
+# ==============================================================================
+
+
+class ToolHandler(ABC):
+    """Abstract base class for tool handlers"""
+
+    @abstractmethod
+    def can_handle(self, tool_name: str) -> bool:
+        """Check if this handler can process the given tool"""
+        pass
+
+    @abstractmethod
+    def process(self, tool_input: Dict[str, Any]) -> Tuple[OperationType, str]:
+        """Process the tool input and return operation type and message"""
+        pass
+
+
+class TaskToolHandler(ToolHandler):
+    """Handler for Task tool operations"""
+
+    def can_handle(self, tool_name: str) -> bool:
+        return tool_name == "Task"
+
+    def process(self, tool_input: Dict[str, Any]) -> Tuple[OperationType, str]:
+        subagent = tool_input.get("subagent_type", "Agent")
+        description = tool_input.get("description", "")
+        return (
+            OperationType.TOOL_TASK,
+            f"Going to chat with Agent({subagent}). Topic: {description}",
+        )
+
+
+class FileToolHandler(ToolHandler):
+    """Handler for file-related tools (Read, Write, Edit, MultiEdit)"""
+
+    def can_handle(self, tool_name: str) -> bool:
+        return tool_name in ["Read", "Write", "Edit", "MultiEdit"]
+
+    def process(self, tool_input: Dict[str, Any]) -> Tuple[OperationType, str]:
+        file_path = tool_input.get("file_path", "")
+
+        if tool_input.get("_tool_name") == "Read":
+            return OperationType.TOOL_READ, f"Reading the file at {file_path}"
+        elif tool_input.get("_tool_name") == "Write":
+            return OperationType.TOOL_WRITE, f"Writing a file at {file_path}"
+        elif tool_input.get("_tool_name") == "Edit":
+            return OperationType.TOOL_EDIT, f"Editing the file at {file_path}"
+        elif tool_input.get("_tool_name") == "MultiEdit":
+            return OperationType.TOOL_MULTI_EDIT, f"Editing the file at {file_path}"
+
+        return OperationType.TOOL_OTHER, f"File operation on {file_path}"
+
+
+class BashToolHandler(ToolHandler):
+    """Handler for Bash tool operations"""
+
+    def can_handle(self, tool_name: str) -> bool:
+        return tool_name == "Bash"
+
+    def process(self, tool_input: Dict[str, Any]) -> Tuple[OperationType, str]:
+        command = tool_input.get("command", "")
+        description = tool_input.get("description", "")
+        message = f"Running Bash command `{command}`"
+        if description:
+            message += f". Focus: {description}"
+        return OperationType.TOOL_BASH, message
+
+
+class WebToolHandler(ToolHandler):
+    """Handler for web-related tools (WebFetch, WebSearch)"""
+
+    def can_handle(self, tool_name: str) -> bool:
+        return tool_name in ["WebFetch", "WebSearch"]
+
+    def process(self, tool_input: Dict[str, Any]) -> Tuple[OperationType, str]:
+        if tool_input.get("_tool_name") == "WebFetch":
+            url = tool_input.get("url", "")
+            return OperationType.TOOL_WEB_FETCH, f"Fetching the URL {url}"
+        elif tool_input.get("_tool_name") == "WebSearch":
+            query = tool_input.get("query", "")
+            return OperationType.TOOL_WEB_SEARCH, f"Searching the web for {query}"
+
+        return OperationType.TOOL_OTHER, "Web operation"
+
+
+class SearchToolHandler(ToolHandler):
+    """Handler for search tools (Glob, Grep)"""
+
+    def can_handle(self, tool_name: str) -> bool:
+        return tool_name in ["Glob", "Grep"]
+
+    def process(self, tool_input: Dict[str, Any]) -> Tuple[OperationType, str]:
+        if tool_input.get("_tool_name") == "Glob":
+            pattern = tool_input.get("pattern", "")
+            return OperationType.TOOL_GLOB, f"Searching for files matching {pattern}"
+        elif tool_input.get("_tool_name") == "Grep":
+            pattern = tool_input.get("pattern", "")
+            return OperationType.TOOL_GREP, f"Searching for patterns matching {pattern}"
+
+        return OperationType.TOOL_OTHER, "Search operation"
+
+
+class MCPToolHandler(ToolHandler):
+    """Handler for MCP tools"""
+
+    def can_handle(self, tool_name: str) -> bool:
+        return tool_name.startswith("mcp")
+
+    def process(self, tool_input: Dict[str, Any]) -> Tuple[OperationType, str]:
+        custom_fields = json.dumps(tool_input)
+        tool_name = tool_input.get("_tool_name", "mcp_tool")
+        return OperationType.TOOL_MCP, f"Running {tool_name} with {custom_fields}"
+
+
+class DefaultToolHandler(ToolHandler):
+    """Default handler for unknown tools"""
+
+    def can_handle(self, tool_name: str) -> bool:
+        return True  # Always can handle as fallback
+
+    def process(self, tool_input: Dict[str, Any]) -> Tuple[OperationType, str]:
+        tool_name = tool_input.get("_tool_name", "unknown_tool")
+        # Remove internal fields from display
+        display_input = {k: v for k, v in tool_input.items() if not k.startswith("_")}
+        return (
+            OperationType.TOOL_OTHER,
+            f"Running {tool_name} with input: {json.dumps(display_input)}",
+        )
+
+
+class ToolProcessor:
+    """Processes tool usage with strategy pattern"""
+
+    def __init__(self):
+        self.handlers = [
+            TaskToolHandler(),
+            FileToolHandler(),
+            BashToolHandler(),
+            WebToolHandler(),
+            SearchToolHandler(),
+            MCPToolHandler(),
+            DefaultToolHandler(),  # Must be last as fallback
+        ]
+        self.tool_use_mapping: Dict[str, Dict[str, Any]] = {}
+
+    def process_tool_use(
+        self, tool_name: str, tool_input: Dict[str, Any], tool_id: str = ""
+    ) -> Tuple[OperationType, str]:
+        """Process tool use and return operation type and message"""
+        # Store tool mapping for later reference
+        if tool_id:
+            self.tool_use_mapping[tool_id] = {
+                "name": tool_name,
+                "input": tool_input,
+            }
+
+        # Add tool name to input for handlers
+        tool_input_with_name = {**tool_input, "_tool_name": tool_name}
+
+        # Find appropriate handler
+        for handler in self.handlers:
+            if handler.can_handle(tool_name):
+                return handler.process(tool_input_with_name)
+
+        # This should never happen due to DefaultToolHandler
+        return OperationType.TOOL_OTHER, f"Unknown tool: {tool_name}"
+
+
+# ==============================================================================
+# FILE CHANGE HANDLER
+# ==============================================================================
+
+
 class TranscriptChangeHandler(FileSystemEventHandler):
     """Handles file system events for the transcript file."""
 
@@ -53,93 +426,263 @@ class TranscriptChangeHandler(FileSystemEventHandler):
         self.output_filepath = output_filepath
 
     def on_modified(self, event):
-        """
-        This method is called by watchdog when a file is modified.
-        """
-        # We only care about modifications to our specific input file
+        """This method is called by watchdog when a file is modified."""
         if (
             not event.is_directory
             and os.path.abspath(event.src_path) == self.input_filepath
         ):
             print(f"Detected change in {self.input_filepath}")
             try:
-                # Use the existing processing logic from the capturer
-                new_objects = self.capturer._read_new_objects(self.input_filepath)
-
-                if new_objects:
-                    print(f"Processing {len(new_objects)} new objects...")
-                    self.capturer._process_new_objects(new_objects)
-                    self.capturer._update_output_file(self.output_filepath)
-                    print(
-                        f"Updated {self.output_filepath} with {len(new_objects)} new conversations"
-                    )
-
+                self.capturer.process_new_changes(self.output_filepath)
             except Exception as e:
                 print(f"Error during processing event: {e}", file=sys.stderr)
 
 
+# ==============================================================================
+# MAIN TRANSCRIPT CAPTURER (REFACTORED FOR INCREMENTAL PROCESSING)
+# ==============================================================================
+
+
 class TranscriptCapturer:
+    """Main orchestrator for transcript processing using Pydantic and incremental updates."""
+
     def __init__(self, human_name: str = "Human", primary_agent: str = "Assistant"):
         self.human_name = human_name
         self.primary_agent = primary_agent
+
+        # Components
+        self.json_parser = JSONParser()
+        self.tool_processor = ToolProcessor()
+
+        # State
         self.conversations: List[ConversationMessage] = []
-        self.all_objects: List[Dict[str, Any]] = []
-        self.processed_objects_count = 0  # Track how many objects we've processed
+        self.all_raw_objects_map: Dict[
+            str, TranscriptLine
+        ] = {}  # Use TranscriptLine model
 
-        # Maps for tracking relationships
-        self.task_to_chain_mapping: Dict[str, str] = {}  # Maps task prompt to task UUID
-        self.chain_to_agent_mapping: Dict[
-            str, str
-        ] = {}  # Maps chain UUID to agent name
-        self.tool_errors: Dict[str, bool] = {}  # Maps tool_use UUID to error status
-        self.tool_use_mapping: Dict[
-            str, Dict[str, Any]
-        ] = {}  # Maps tool_use_id to tool details
+        # Relationship tracking
+        self.task_to_chain_mapping: Dict[str, str] = {}
+        self.chain_to_agent_mapping: Dict[str, str] = {}
+        self.tool_errors: Dict[str, bool] = {}
 
-    # CHANGED: Replaced the polling loop with an event-driven setup
+        # State for incremental processing
+        self.uuid_to_conv: Dict[str, ConversationMessage] = {}
+        self.primary_order_counter = 1
+        self.chain_order_counters: Dict[str, int] = {}
+
     def start_watching(self, input_filepath: str, output_filepath: str):
         """Watch input file for changes using an event-driven observer."""
         print(f"Starting to watch {input_filepath} for changes...")
         print(f"Output will be written to {output_filepath}")
 
-        # Ensure output directory exists
         Path(output_filepath).parent.mkdir(parents=True, exist_ok=True)
-
-        # Initialize output file if it doesn't exist
         if not Path(output_filepath).exists():
             self._write_initial_output(output_filepath)
 
-        # --- Initial processing for any content that already exists ---
-        if Path(input_filepath).exists():
-            print("Processing existing content in input file...")
-            new_objects = self._read_new_objects(input_filepath)
-            if new_objects:
-                self._process_new_objects(new_objects)
-                self._update_output_file(output_filepath)
-                print(f"Initial processing complete. Found {len(new_objects)} objects.")
+        self.json_parser.open_file(input_filepath)
 
-        # --- Setup watchdog observer ---
+        if self.json_parser.file_handle:
+            print("Processing existing content in input file...")
+            # Set position to 0 to read the whole file on the first run
+            self.json_parser.last_pos = 0
+            self.process_new_changes(output_filepath)
+
         event_handler = TranscriptChangeHandler(self, input_filepath, output_filepath)
         observer = Observer()
-        # Watch the DIRECTORY of the input file, as observers work on directories
         watch_dir = os.path.dirname(os.path.abspath(input_filepath))
         observer.schedule(event_handler, watch_dir, recursive=False)
-
         print(f"Now watching directory '{watch_dir}' for events...")
         observer.start()
 
         try:
-            # Keep the main thread alive, the observer is running in the background
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
             print("\nStopping file watcher...")
+        finally:
+            self.json_parser.close_file()
             observer.stop()
+            observer.join()
 
-        observer.join()
+    def process_new_changes(self, output_filepath: str):
+        """Process new changes detected in the input file incrementally."""
+        new_raw_objects = (
+            self.json_parser.read_new_objects()
+        )  # This now returns List[TranscriptLine]
+        if not new_raw_objects:
+            return
 
-    # REMOVED: The old watch_and_process method is gone.
-    # The logic from its loop is now in TranscriptChangeHandler.on_modified.
+        print(f"Processing {len(new_raw_objects)} new objects incrementally...")
+        for obj in new_raw_objects:
+            self.all_raw_objects_map[obj.uuid] = obj
+
+        self._update_relationship_maps(new_raw_objects)
+
+        newly_added_conversations = 0
+        for raw_obj in new_raw_objects:
+            conv_msg = self._process_raw_object(raw_obj)
+            if conv_msg:
+                self._process_and_link_new_message(conv_msg)
+                self.conversations.append(conv_msg)
+                self.uuid_to_conv[conv_msg._uuid] = conv_msg
+                newly_added_conversations += 1
+
+        if newly_added_conversations > 0:
+            self.conversations.sort(
+                key=lambda x: self._parse_order_for_sorting(x.order)
+            )
+            self._update_output_file(output_filepath)
+            print(
+                f"Updated {output_filepath} with {newly_added_conversations} new conversations"
+            )
+
+    def _update_relationship_maps(self, new_raw_objects: List[TranscriptLine]):
+        """Incrementally update relationship maps with new data using Pydantic models."""
+        for raw_obj in new_raw_objects:
+            if raw_obj.message_type == "assistant":
+                for item in raw_obj.message.content:
+                    if isinstance(item, ToolUseContent) and item.name == "Task":
+                        prompt = item.input.get("prompt", "")
+                        subagent = item.input.get("subagent_type", "Agent")
+                        self.task_to_chain_mapping[prompt] = raw_obj.uuid
+                        self.chain_to_agent_mapping[raw_obj.uuid] = subagent
+            elif raw_obj.message_type == "user":
+                for item in raw_obj.message.content:
+                    if isinstance(item, ToolResultContent) and item.is_error:
+                        if raw_obj.parent_uuid:
+                            self.tool_errors[raw_obj.parent_uuid] = True
+
+    def _process_and_link_new_message(self, conv_msg: ConversationMessage):
+        """Processes a single new message, linking it to the existing state."""
+        valid_parent_uuid = self._find_valid_parent_uuid(conv_msg._original_parent_uuid)
+        parent_conv = (
+            self.uuid_to_conv.get(valid_parent_uuid) if valid_parent_uuid else None
+        )
+
+        if conv_msg.is_sidechain:
+            if conv_msg._original_chain_id:
+                conv_msg.chain_id = conv_msg._original_chain_id
+            elif parent_conv and parent_conv.chain_id:
+                conv_msg.chain_id = parent_conv.chain_id
+            if conv_msg.chain_id and conv_msg.speaker == "Agent":
+                conv_msg.speaker = self.chain_to_agent_mapping.get(
+                    conv_msg.chain_id, "Agent"
+                )
+
+        if not conv_msg.is_sidechain:
+            conv_msg.order = str(self.primary_order_counter)
+            self.primary_order_counter += 1
+        else:
+            if conv_msg.chain_id:
+                task_conv = self.uuid_to_conv.get(conv_msg.chain_id)
+                if task_conv and task_conv.order:
+                    base_order = task_conv.order
+                    sub_order = self.chain_order_counters.get(conv_msg.chain_id, 1)
+                    conv_msg.order = f"{base_order}.{sub_order}"
+                    self.chain_order_counters[conv_msg.chain_id] = sub_order + 1
+                else:
+                    conv_msg.order = f"unknown.{self.primary_order_counter}"
+            else:
+                conv_msg.order = f"unknown.{self.primary_order_counter}"
+
+        conv_msg.id = conv_msg._uuid[:5] if conv_msg._uuid else "00000"
+        if parent_conv:
+            parent_uuid_prefix = parent_conv._uuid[:5] if parent_conv._uuid else "00000"
+            conv_msg.parent_id = f"{parent_conv.order}-{parent_uuid_prefix}"
+        else:
+            conv_msg.parent_id = None
+
+    def _find_valid_parent_uuid(self, start_uuid: Optional[str]) -> Optional[str]:
+        """Recursively find the closest valid parent that wasn't filtered out."""
+        if not start_uuid:
+            return None
+        if start_uuid in self.uuid_to_conv:
+            return start_uuid
+        if start_uuid in self.all_raw_objects_map:
+            next_parent_uuid = self.all_raw_objects_map[start_uuid].parent_uuid
+            return self._find_valid_parent_uuid(next_parent_uuid)
+        return None
+
+    def _process_raw_object(
+        self, raw_obj: TranscriptLine
+    ) -> Optional[ConversationMessage]:
+        """Process a single raw object (TranscriptLine) into a conversation message."""
+        if (
+            raw_obj.message_type in IGNORED_MESSAGE_TYPES
+            or not raw_obj.message
+            or raw_obj.is_meta
+        ):
+            return None
+
+        # Simplified filtering using Pydantic models
+        if any(isinstance(item, ToolResultContent) for item in raw_obj.message.content):
+            return None
+        if any(
+            isinstance(item, ToolUseContent) and item.name == "TodoWrite"
+            for item in raw_obj.message.content
+        ):
+            return None
+
+        speaker = self._determine_speaker(raw_obj)
+        operation, message = self._extract_operation_and_message(raw_obj)
+
+        if raw_obj.uuid in self.tool_errors and message:
+            message = f"FAILED: {message}"
+
+        if operation and message:
+            return ConversationMessage(
+                id="",
+                parent_id="",
+                timestamp=raw_obj.timestamp,
+                speaker=speaker,
+                operation=operation,
+                message=message,
+                is_sidechain=raw_obj.is_sidechain,
+                _uuid=raw_obj.uuid,
+                _original_parent_uuid=raw_obj.parent_uuid,
+                _original_chain_id=self._determine_chain_id(raw_obj),
+            )
+        return None
+
+    def _determine_speaker(self, raw_obj: TranscriptLine) -> str:
+        """Determine the speaker based on rules."""
+        if not raw_obj.is_sidechain:
+            return (
+                self.human_name
+                if raw_obj.message_type == "user"
+                else self.primary_agent
+            )
+        else:
+            return self.primary_agent if raw_obj.message_type == "user" else "Agent"
+        return "System"
+
+    def _determine_chain_id(self, raw_obj: TranscriptLine) -> Optional[str]:
+        """Determine the chain_id for a conversation object."""
+        # This logic becomes simpler if we assume the first text content is the key
+        if raw_obj.is_sidechain and raw_obj.parent_uuid is None:
+            for item in raw_obj.message.content:
+                if (
+                    isinstance(item, TextContent)
+                    and item.text in self.task_to_chain_mapping
+                ):
+                    return self.task_to_chain_mapping[item.text]
+        return None
+
+    def _extract_operation_and_message(
+        self, raw_obj: TranscriptLine
+    ) -> Tuple[OperationType, str]:
+        """Extract operation and message from a TranscriptLine object."""
+        for item in raw_obj.message.content:
+            if isinstance(item, TextContent):
+                return OperationType.RESPONSE, item.text
+            if isinstance(item, ToolUseContent):
+                return self.tool_processor.process_tool_use(
+                    item.name, item.input, item.id
+                )
+        return (
+            OperationType.RESPONSE,
+            "",
+        )  # Fallback for messages with no processable content
 
     def _write_initial_output(self, output_filepath: str):
         """Write initial empty output file"""
@@ -165,273 +708,8 @@ class TranscriptCapturer:
         with open(output_filepath, "w") as f:
             json.dump(initial_output, f, separators=(",", ":"))
 
-    def _read_new_objects(self, filepath: str) -> List[Dict[str, Any]]:
-        """Read only new objects from the file since last processing"""
-        try:
-            with open(filepath, "r") as f:
-                content = f.read()
-        except Exception as e:
-            print(f"Error reading file: {e}", file=sys.stderr)
-            return []
-
-        # Parse all JSON objects from content
-        json_objects = []
-        current_obj = ""
-        brace_count = 0
-
-        for char in content:
-            current_obj += char
-            if char == "{":
-                brace_count += 1
-            elif char == "}":
-                brace_count -= 1
-                if brace_count == 0 and current_obj.strip():
-                    # We've completed a JSON object
-                    try:
-                        obj = json.loads(current_obj.strip())
-                        json_objects.append(obj)
-                    except json.JSONDecodeError as e:
-                        print(f"Error parsing JSON object: {e}", file=sys.stderr)
-                        print(
-                            f"Object (first 200 chars): {current_obj[:200]}",
-                            file=sys.stderr,
-                        )
-                    current_obj = ""
-
-        # Return only new objects
-        new_objects = json_objects[self.processed_objects_count :]
-        return new_objects
-
-    def _process_new_objects(self, new_objects: List[Dict[str, Any]]):
-        """Process new objects and add them to conversations"""
-        # Add new objects to our collection
-        self.all_objects.extend(new_objects)
-
-        # Update processed count
-        self.processed_objects_count = len(self.all_objects)
-
-        # Re-identify task chains and tool errors with all objects
-        self._identify_task_chains()
-        self._identify_tool_errors()
-
-        # Process only the new objects, but with context of all objects
-        new_conversations = []
-        for obj in new_objects:
-            conv_msg = self._process_object(obj)
-            if conv_msg:
-                new_conversations.append(conv_msg)
-
-        # Add new conversations to our collection
-        self.conversations.extend(new_conversations)
-
-        # Re-process relationships for all conversations
-        self._fix_parent_uuids()
-        self._propagate_chain_ids()
-        self._assign_conversation_order()
-        self._generate_compact_ids()
-
-        # Sort all conversations by order
-        self.conversations.sort(key=lambda x: self._parse_order_for_sorting(x.order))
-
-    def _update_output_file(self, output_filepath: str):
-        """Update the output file with current conversations"""
-        output_data = self._format_conversation_output(self.conversations)
-
-        with open(output_filepath, "w") as f:
-            json.dump(output_data, f, separators=(",", ":"))
-
-    def _identify_task_chains(self):
-        """First pass: identify Task operations and map them to chains"""
-        for obj in self.all_objects:
-            message = obj.get("message", {})
-            if isinstance(message, dict):
-                content = message.get("content", [])
-                if isinstance(content, list):
-                    for item in content:
-                        if (
-                            isinstance(item, dict)
-                            and item.get("type") == "tool_use"
-                            and item.get("name") == "Task"
-                        ):
-                            task_uuid = obj.get("uuid", "")
-                            task_input = item.get("input", {})
-                            prompt = task_input.get("prompt", "")
-                            subagent = task_input.get("subagent_type", "Agent")
-
-                            # Map the prompt to the task UUID
-                            self.task_to_chain_mapping[prompt] = task_uuid
-                            # Map the task UUID to the agent name
-                            self.chain_to_agent_mapping[task_uuid] = subagent
-
-    def _identify_tool_errors(self):
-        """Second pass: identify tool errors from tool results"""
-        for obj in self.all_objects:
-            message_type = obj.get("type", "")
-            if message_type == "user":
-                message = obj.get("message", {})
-                if isinstance(message, dict):
-                    content = message.get("content", [])
-                    if isinstance(content, list):
-                        for item in content:
-                            if (
-                                isinstance(item, dict)
-                                and item.get("type") == "tool_result"
-                            ):
-                                is_error = item.get("is_error", False)
-                                parent_uuid = obj.get("parentUuid")
-                                if parent_uuid and is_error:
-                                    self.tool_errors[parent_uuid] = True
-
-    def _propagate_chain_ids(self):
-        """Propagate chain_ids through sidechain conversations and update speakers"""
-        # First restore original chain_ids
-        for conv in self.conversations:
-            if conv.original_chain_id is not None:
-                conv.chain_id = conv.original_chain_id
-
-        # Build a map of UUID to conversation message
-        uuid_to_conv = {conv.uuid: conv for conv in self.conversations}
-
-        # Find all sidechain starts and propagate their chain_id
-        for conv in self.conversations:
-            if conv.is_sidechain and conv.chain_id:
-                # Propagate this chain_id to all children in the sidechain
-                self._propagate_chain_id_to_children(
-                    uuid_to_conv, conv.uuid, conv.chain_id
-                )
-
-        # Update speakers for sidechain assistant messages
-        for conv in self.conversations:
-            if conv.is_sidechain and conv.chain_id and conv.speaker == "Agent":
-                if conv.chain_id in self.chain_to_agent_mapping:
-                    conv.speaker = self.chain_to_agent_mapping[conv.chain_id]
-
-    def _fix_parent_uuids(self):
-        """Fix parent UUIDs to point to valid parents that weren't filtered out"""
-        # Create a map of UUID to conversation message for quick lookup
-        uuid_to_conv = {conv.uuid: conv for conv in self.conversations}
-
-        # Create a map of UUID to raw object for traversing the original chain
-        uuid_to_raw = {
-            obj.get("uuid", ""): obj for obj in self.all_objects if obj.get("uuid")
-        }
-
-        for conv in self.conversations:
-            # Reset parent_id to original parent UUID before processing
-            conv.parent_id = conv.original_parent_uuid
-
-            # parent_id currently stores the original parent_uuid
-            if conv.parent_id and conv.parent_id not in uuid_to_conv:
-                # Parent was filtered out, find the next valid parent up the chain
-                new_parent_uuid = self._find_valid_parent(
-                    conv.parent_id, uuid_to_raw, uuid_to_conv
-                )
-                conv.parent_id = (
-                    new_parent_uuid  # Store the corrected parent UUID temporarily
-                )
-
-    def _find_valid_parent(
-        self,
-        current_parent_uuid: Optional[str],
-        uuid_to_raw: Dict[str, Dict[str, Any]],
-        uuid_to_conv: Dict[str, ConversationMessage],
-    ) -> Optional[str]:
-        """Recursively find the closest valid parent that wasn't filtered out"""
-        if not current_parent_uuid:
-            return None
-
-        # If the current parent exists in our conversations, we're done
-        if current_parent_uuid in uuid_to_conv:
-            return current_parent_uuid
-
-        # Otherwise, find the parent of the filtered-out object and continue searching
-        if current_parent_uuid in uuid_to_raw:
-            raw_obj = uuid_to_raw[current_parent_uuid]
-            next_parent_uuid = raw_obj.get("parentUuid")
-            return self._find_valid_parent(next_parent_uuid, uuid_to_raw, uuid_to_conv)
-
-        return None
-
-    def _generate_compact_ids(self):
-        """Generate compact IDs based on UUID prefixes, keep order separate"""
-        # Create a mapping from UUID to conversation for parent lookups
-        uuid_to_conv = {conv.uuid: conv for conv in self.conversations}
-
-        for conv in self.conversations:
-            # Generate compact ID: just the first 5 characters of UUID
-            uuid_prefix = conv.uuid[:5] if conv.uuid else "00000"
-            conv.id = uuid_prefix
-
-            # Generate compact parent_id if parent exists (format: order-uuid_prefix for lookup)
-            if conv.parent_id and conv.parent_id in uuid_to_conv:
-                parent_conv = uuid_to_conv[conv.parent_id]
-                parent_uuid_prefix = (
-                    parent_conv.uuid[:5] if parent_conv.uuid else "00000"
-                )
-                # Store the compact parent ID with its order for now
-                conv.parent_id = f"{parent_conv.order}-{parent_uuid_prefix}"
-            elif conv.parent_id:
-                # Parent doesn't exist in our conversations, set to None
-                conv.parent_id = None
-
-            # Convert chain_id to just the order of the originating task
-            if conv.chain_id and conv.chain_id in uuid_to_conv:
-                chain_conv = uuid_to_conv[conv.chain_id]
-                # For chain_id, just use the order of the originating task
-                conv.chain_id = chain_conv.order
-            elif conv.chain_id:
-                # Chain ID doesn't exist in our conversations, keep as None
-                conv.chain_id = None
-
-    def _assign_conversation_order(self):
-        """Assign order numbers to conversations - primary chain (1,2,3...) and sidechain (task.1, task.2...)"""
-        # First restore original chain_ids
-        for conv in self.conversations:
-            if conv.original_chain_id is not None:
-                conv.chain_id = conv.original_chain_id
-
-        # Sort all conversations by timestamp first
-        all_conversations = sorted(self.conversations, key=lambda x: x.timestamp)
-
-        # Track order counters
-        primary_order = 1
-        chain_order_map = {}  # chain_id -> next order number for that chain
-        uuid_to_conv = {conv.uuid: conv for conv in self.conversations}
-
-        for conv in all_conversations:
-            if not conv.is_sidechain:
-                # Primary chain: simple sequential numbering
-                conv.order = str(primary_order)
-                primary_order += 1
-            else:
-                # Sidechain: find the originating task and number sequentially
-                if conv.chain_id:
-                    # Find the task that created this chain
-                    task_conv = uuid_to_conv.get(conv.chain_id)
-                    if task_conv and hasattr(task_conv, "order") and task_conv.order:
-                        # Initialize chain order if not exists
-                        if conv.chain_id not in chain_order_map:
-                            chain_order_map[conv.chain_id] = 1
-
-                        # Extract base order number (just the number part, not sub-levels)
-                        base_order = (
-                            task_conv.order.split(".")[0]
-                            if "." in task_conv.order
-                            else task_conv.order
-                        )
-                        conv.order = f"{base_order}.{chain_order_map[conv.chain_id]}"
-                        chain_order_map[conv.chain_id] += 1
-                    else:
-                        # Fallback if we can't find the task
-                        conv.order = f"unknown.{primary_order}"
-                        primary_order += 1
-                else:
-                    # No chain_id, fallback ordering
-                    conv.order = f"unknown.{primary_order}"
-                    primary_order += 1
-
     def _parse_order_for_sorting(self, order: str) -> tuple:
-        """Parse order string for proper sorting (e.g., '2.1' -> (2, 1))"""
+        """Parse order string for proper sorting"""
         if not order:
             return (float("inf"),)
 
@@ -439,276 +717,17 @@ class TranscriptCapturer:
             parts = order.replace("unknown.", "999.").split(".")
             return tuple(int(part) for part in parts)
         except ValueError:
-            # Fallback for non-numeric parts
             return (float("inf"),)
 
-    def _propagate_chain_id_to_children(
-        self,
-        uuid_to_conv: Dict[str, ConversationMessage],
-        parent_uuid: str,
-        chain_id: str,
-    ):
-        """Recursively propagate chain_id to all children"""
-        for conv in self.conversations:
-            # parent_id currently stores the original parent_uuid during processing
-            if conv.parent_id == parent_uuid and conv.is_sidechain:
-                conv.chain_id = chain_id
-                conv.original_chain_id = chain_id  # Also preserve the original
-                # Recursively propagate to its children
-                self._propagate_chain_id_to_children(uuid_to_conv, conv.uuid, chain_id)
+    def _update_output_file(self, output_filepath: str):
+        """Update the output file with current conversations"""
+        output_data = self._format_conversation_output()
 
-    def _process_object(self, obj: Dict[str, Any]) -> Optional[ConversationMessage]:
-        """Process a single conversation object"""
-        # Skip system messages
-        if obj.get("type") == "system":
-            return None
+        with open(output_filepath, "w") as f:
+            json.dump(output_data, f, separators=(",", ":"))
 
-        # Skip meta messages
-        if obj.get("isMeta", False):
-            return None
-
-        # Skip TodoWrite operations
-        if self._is_todo_write(obj):
-            return None
-
-        # Skip tool result messages (they're handled separately)
-        if self._is_tool_result(obj):
-            return None
-
-        uuid = obj.get("uuid", "")
-        parent_uuid = obj.get("parentUuid")
-        timestamp = obj.get("timestamp", "")
-        is_sidechain = obj.get("isSidechain", False)
-
-        # Determine chain_id
-        chain_id = self._determine_chain_id(obj)
-
-        # Determine speaker
-        speaker = self._determine_speaker(obj, is_sidechain, chain_id)
-
-        # Extract operation and message based on content
-        operation, message = self._extract_operation_and_message(obj)
-
-        # Check if this is a tool use that had an error
-        if uuid in self.tool_errors and message:
-            message = f"FAILED: {message}"
-
-        if operation and message:
-            conv_msg = ConversationMessage(
-                id="",  # Will be generated later
-                parent_id="",  # Will be generated later
-                timestamp=timestamp,
-                speaker=speaker,
-                operation=operation,
-                message=message,
-                is_sidechain=is_sidechain,
-                chain_id=chain_id,
-                uuid=uuid,  # Keep for internal processing
-                order="",  # Will be assigned later
-                original_parent_uuid=parent_uuid,  # Store original parent UUID
-                original_chain_id=chain_id  # Store original chain UUID
-            )
-            # Store parent_uuid temporarily for processing
-            conv_msg.parent_id = (
-                parent_uuid  # Store temporarily, will be converted later
-            )
-            return conv_msg
-
-        return None
-
-    def _determine_chain_id(self, obj: Dict[str, Any]) -> Optional[str]:
-        """Determine the chain_id for a conversation object"""
-        is_sidechain = obj.get("isSidechain", False)
-        parent_uuid = obj.get("parentUuid")
-
-        if is_sidechain:
-            if parent_uuid is None:
-                # This is the start of a sidechain
-                # Check if this content matches a Task prompt
-                message = obj.get("message", {})
-                if isinstance(message, dict):
-                    content = message.get("content", "")
-                    if (
-                        isinstance(content, str)
-                        and content in self.task_to_chain_mapping
-                    ):
-                        return self.task_to_chain_mapping[content]
-            # Chain ID will be propagated later
-        return None
-
-    def _determine_speaker(
-        self, obj: Dict[str, Any], is_sidechain: bool, chain_id: Optional[str]
-    ) -> str:
-        """Determine the speaker based on rules"""
-        message_type = obj.get("type", "")
-
-        if not is_sidechain:
-            # Primary conversation chain
-            if message_type == "user":
-                return self.human_name
-            elif message_type == "assistant":
-                return self.primary_agent
-        else:
-            # Branch conversation chain
-            if message_type == "user":
-                return self.primary_agent
-            elif message_type == "assistant":
-                # Try to find the agent name from the chain_id
-                if chain_id and chain_id in self.chain_to_agent_mapping:
-                    return self.chain_to_agent_mapping[chain_id]
-                return "Agent"  # Default if we can't determine
-
-        return "System"
-
-    def _is_todo_write(self, obj: Dict[str, Any]) -> bool:
-        """Check if this is a TodoWrite operation"""
-        message = obj.get("message", {})
-        if isinstance(message, dict):
-            content = message.get("content", [])
-            if isinstance(content, list):
-                for item in content:
-                    if isinstance(item, dict):
-                        if (
-                            item.get("type") == "tool_use"
-                            and item.get("name") == "TodoWrite"
-                        ):
-                            return True
-        return False
-
-    def _is_tool_result(self, obj: Dict[str, Any]) -> bool:
-        """Check if this is a tool result message"""
-        message_type = obj.get("type", "")
-        if message_type == "user":
-            message = obj.get("message", {})
-            if isinstance(message, dict):
-                content = message.get("content", [])
-                if isinstance(content, list):
-                    for item in content:
-                        if isinstance(item, dict) and item.get("type") == "tool_result":
-                            return True
-        return False
-
-    def _extract_operation_and_message(self, obj: Dict[str, Any]) -> Tuple[str, str]:
-        """Extract operation and message from conversation object"""
-        message = obj.get("message", {})
-
-        if not isinstance(message, dict):
-            return "", ""
-
-        content = message.get("content")
-
-        # Handle string content
-        if isinstance(content, str):
-            return "response", content
-
-        # Handle array content
-        if isinstance(content, list):
-            for item in content:
-                if not isinstance(item, dict):
-                    continue
-
-                item_type = item.get("type", "")
-
-                # Handle text content
-                if item_type == "text":
-                    return "response", item.get("text", "")
-
-                # Handle tool use
-                if item_type == "tool_use":
-                    tool_name = item.get("name", "")
-                    tool_id = item.get("id", "")
-                    tool_input = item.get("input", {})
-
-                    # Store tool mapping for later reference
-                    self.tool_use_mapping[tool_id] = {
-                        "name": tool_name,
-                        "input": tool_input,
-                    }
-
-                    return self._process_tool_use(tool_name, tool_input)
-
-                # Skip tool results - they are handled separately
-                if item_type == "tool_result":
-                    continue
-
-        # Handle direct content if it's neither string nor list
-        elif isinstance(content, dict):
-            content_type = content.get("type", "")
-            if content_type == "text":
-                return "response", content.get("text", "")
-
-        return "", ""
-
-    def _process_tool_use(
-        self, tool_name: str, tool_input: Dict[str, Any]
-    ) -> Tuple[str, str]:
-        """Process tool use based on rules"""
-        if tool_name == "Task":
-            subagent = tool_input.get("subagent_type", "Agent")
-            description = tool_input.get("description", "")
-            return (
-                "Tool:Task",
-                f"Going to chat with Agent({subagent}). Topic: {description}",
-            )
-
-        elif tool_name == "Read":
-            file_path = tool_input.get("file_path", "")
-            return "Tool:Read", f"Reading the file at {file_path}"
-
-        elif tool_name == "Write":
-            file_path = tool_input.get("file_path", "")
-            return "Tool:Write", f"Writing a file at {file_path}"
-
-        elif tool_name == "Bash":
-            command = tool_input.get("command", "")
-            description = tool_input.get("description", "")
-            message = f"Running Bash command `{command}`"
-            if description:
-                message += f". Focus: {description}"
-            return "Tool:Bash", message
-
-        elif tool_name in ["MultiEdit", "Edit"]:
-            file_path = tool_input.get("file_path", "")
-            return f"Tool:{tool_name}", f"Editing the file at {file_path}"
-
-        elif tool_name == "WebFetch":
-            url = tool_input.get("url", "")
-            return "Tool:WebFetch", f"Fetching the URL {url}"
-
-        elif tool_name == "WebSearch":
-            query = tool_input.get("query", "")
-            return "Tool:WebSearch", f"Searching the web for {query}"
-
-        elif tool_name == "Glob":
-            pattern = tool_input.get("pattern", "")
-            return "Tool:Glob", f"Searching for files matching {pattern}"
-
-        elif tool_name == "Grep":
-            pattern = tool_input.get("pattern", "")
-            return "Tool:Grep", f"Searching for patterns matching {pattern}"
-
-        elif tool_name.startswith("mcp"):
-            # MCP tools
-            custom_fields = json.dumps(tool_input)
-            return f"Tool:{tool_name}", f"Running MCP with {custom_fields}"
-
-        elif tool_name == "TodoWrite":
-            return "", ""  # Ignore TodoWrite
-
-        else:
-            # Unknown tool
-            return (
-                f"Tool:{tool_name}",
-                f"Running {tool_name} with input: {json.dumps(tool_input)}",
-            )
-
-    def _format_conversation_output(
-        self, conversations: List[ConversationMessage]
-    ) -> Dict[str, Any]:
+    def _format_conversation_output(self) -> Dict[str, Any]:
         """Format conversations for JSON output as array of arrays"""
-        import time
-
-        # Convert conversations to array of arrays format
         headers = [
             "id",
             "order",
@@ -720,52 +739,55 @@ class TranscriptCapturer:
         ]
         data = []
 
-        for conv in conversations:
+        for conv in self.conversations:
             # Convert ISO timestamp to Unix timestamp
             try:
                 from datetime import datetime
 
                 dt = datetime.fromisoformat(conv.timestamp.replace("Z", "+00:00"))
                 unix_timestamp = int(dt.timestamp())
-            except:
-                unix_timestamp = int(time.time())  # Fallback to current time
+            except (ValueError, AttributeError) as e:
+                print(f"Error parsing timestamp {conv.timestamp}: {e}", file=sys.stderr)
+                unix_timestamp = int(time.time())
 
-            # Extract only the 5-character UUID part from parent_id (after the hyphen)
+            # Extract only the 5-character UUID part from parent_id
             parent_id = conv.parent_id
             if parent_id and "-" in parent_id:
-                parent_id = parent_id.split("-", 1)[
-                    1
-                ]  # Take everything after the first hyphen
+                parent_id = parent_id.split("-", 1)[1]
 
             row = [
-                conv.id,  # Just the 5-character UUID prefix
-                conv.order,  # The order as a separate field
-                parent_id,  # Now just the 5-character UUID part
+                conv.id,
+                conv.order,
+                parent_id,
                 unix_timestamp,
                 conv.speaker,
-                conv.operation,
+                conv.operation.value,  # Use enum value
                 conv.message,
             ]
             data.append(row)
 
-        # Format metadata as array of arrays
+        # Format metadata
         current_unix_time = int(time.time())
         metadata = [
             ["generated_at", current_unix_time],
-            ["message_count", len(conversations)],
+            ["message_count", len(self.conversations)],
             [
                 "primary_chain_count",
-                sum(1 for c in conversations if not c.is_sidechain),
+                sum(1 for c in self.conversations if not c.is_sidechain),
             ],
-            ["sidechain_count", sum(1 for c in conversations if c.is_sidechain)],
+            ["sidechain_count", sum(1 for c in self.conversations if c.is_sidechain)],
         ]
 
-        output = {
+        return {
             "metadata": metadata,
             "conversations_headers": headers,
             "conversations_data": data,
         }
-        return output
+
+
+# ==============================================================================
+# MAIN FUNCTION
+# ==============================================================================
 
 
 def main():
@@ -791,30 +813,28 @@ def main():
     parser.add_argument(
         "--test-once",
         action="store_true",
-        help="Process the file once and exit (for testing)"
+        help="Process the file once and exit (for testing)",
     )
 
     args = parser.parse_args()
 
-    # Create capturer instance
     capturer = TranscriptCapturer(human_name=args.human, primary_agent=args.agent)
 
     try:
         if args.test_once:
-            # Process the file once for testing
+            # --- CHANGED: Logic for single-run processing ---
             capturer._write_initial_output(args.output)
             if Path(args.input).exists():
-                new_objects = capturer._read_new_objects(args.input)
-                if new_objects:
-                    capturer._process_new_objects(new_objects)
-                    capturer._update_output_file(args.output)
-                    print(f"Processed {len(new_objects)} objects and wrote to {args.output}")
-                else:
-                    print("No objects found in input file")
+                # Open, process all content, then close.
+                capturer.json_parser.open_file(args.input)
+                # In test mode, we want to read the whole file, so we reset the position
+                capturer.json_parser.last_pos = 0
+                capturer.process_new_changes(args.output)
+                capturer.json_parser.close_file()
+                print(f"Processed file and wrote to {args.output}")
             else:
-                print(f"Input file {args.input} does not exist")
+                print(f"Input file {args.input} does not exist", file=sys.stderr)
         else:
-            # CHANGED: Call the new watching method
             capturer.start_watching(args.input, args.output)
     except Exception as e:
         print(f"Error during capture: {e}", file=sys.stderr)
