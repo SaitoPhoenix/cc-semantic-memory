@@ -706,7 +706,7 @@ class TranscriptCapturer:
         }
 
         with open(output_filepath, "w") as f:
-            json.dump(initial_output, f, separators=(",", ":"))
+            self._write_formatted_json(initial_output, f)
 
     def _parse_order_for_sorting(self, order: str) -> tuple:
         """Parse order string for proper sorting"""
@@ -719,12 +719,35 @@ class TranscriptCapturer:
         except ValueError:
             return (float("inf"),)
 
+    def _write_formatted_json(self, data: Dict[str, Any], file):
+        """Write JSON with custom formatting to match the target style"""
+        file.write("{\n")
+
+        # Write metadata
+        file.write('    "metadata":[\n')
+        for i, item in enumerate(data["metadata"]):
+            comma = "," if i < len(data["metadata"]) - 1 else ""
+            file.write(f'        {json.dumps(item)}{comma}\n')
+        file.write('    ],\n')
+
+        # Write conversations_headers
+        file.write(f'    "conversations_headers":{json.dumps(data["conversations_headers"])},\n')
+
+        # Write conversations_data
+        file.write('    "conversations_data":[\n')
+        for i, item in enumerate(data["conversations_data"]):
+            comma = "," if i < len(data["conversations_data"]) - 1 else ""
+            file.write(f'        {json.dumps(item)}{comma}\n')
+        file.write('    ]\n')
+
+        file.write("}\n")
+
     def _update_output_file(self, output_filepath: str):
         """Update the output file with current conversations"""
         output_data = self._format_conversation_output()
 
         with open(output_filepath, "w") as f:
-            json.dump(output_data, f, separators=(",", ":"))
+            self._write_formatted_json(output_data, f)
 
     def _format_conversation_output(self) -> Dict[str, Any]:
         """Format conversations for JSON output as array of arrays"""
