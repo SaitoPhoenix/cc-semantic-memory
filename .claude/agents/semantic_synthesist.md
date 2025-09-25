@@ -61,7 +61,7 @@ This section defines critical context needed for semantic synthesis tasks.
 ## Files
 
   * **EPISODIC_MEMORY**: The JSON transcript file at $TRANSCRIPT_PATH
-  * **EXISTING_SEMANTIC_FILES**: <Optional> Existing semantic memory files at $SEMANTIC_BASE_PATH/$TOPIC/*.md
+  * **SEMANTIC_ENTITY**: The semantic memory file at $SEMANTIC_BASE_PATH/$TOPIC/$ENTITY.md
 
 # Task Execution
 
@@ -98,57 +98,21 @@ Execute these steps in order.
   - Determine emotional tone and confidence levels
   - Identify areas of agreement and disagreement
   - Detect implicit assumptions and unstated context
-  - Flag ambiguities for clarification, preparing them for inclusion in the semantic file using both a dedicated YAML key and inline notation
-  - Distinguish between the different categories of information conveyed in conversation
+  - Flag ambiguities for clarification, preparing them for inclusion in $SEMANTIC_ENTITY using both a dedicated YAML key and inline notation
   - Do not treat all statements as equal; instead, classify them according to their intent and certainty
   - It is more important to capture the "why" behind something than the "what", especially when the "what" is being written to a file (e.g. if a participant takes the action of writing specific details to a file, then it is better to reference the file and capture the "why" in the semantic memory rather than the specific details)
-  - Discern content for semantic capture between the following categories:
-    - **Fact / Decision**
-      - This is verified information or a finalized choice that is stated as complete. It is objective and authoritative.
-      - **Possible Keywords:** 'We have decided', 'the final choice is', 'it is confirmed', 'the deadline will be'
-      - **Example Transcript:** *"Okay, the team has decided. We are choosing Python/FastAPI for the backend."*
-      - **Markdown Headings:** Place content for this category under `## Key Decisions` or `## Facts`
-
-    - **Action / Accomplishment**
-      - This is a report on a task, event, or implementation that has already been completed. It is a statement about a past event.
-      - **Possible Keywords:** 'I have finished', 'Tool:Write', 'I already implemented', 'it has been done'
-      - **Example Transcript:** *"Good news, I already implemented the monorepo structure for the frontend and backend this morning."*
-      - **Markdown Headings:** Place content for this category under `## Actions Completed` or `## Accomplishments`
-
-    - **Proposal / Suggestion**
-      - This is an idea presented for consideration that has not yet been approved or finalized. It is a potential future state, not a current one.
-      - **Possible Keywords:** 'I propose', 'what if we', 'we could', 'my suggestion is', 'I'm thinking we should'
-      - **Example Transcript:** *"For the frontend, I'm thinking we should go with a full React, Zustand, and Tailwind stack. I'll write up a formal proposal."*
-      - **Markdown Headings:** Place content for this category under `## Proposals` or `## Suggestions`
-
-    - **Preference**
-      - This is a desired outcome or favored option expressed by a participant. It influences decisions but is not a decision in itself. It reflects a bias or inclination.
-      - **Possible Keywords:** 'I prefer', 'I'd rather', 'my favorite is', 'ideally', 'I lean towards'
-      - **Example Transcript:** *"I really lean towards using ruff for formatting; it's just so much faster than black."*
-      - **Markdown Headings:** Place content for this category under `## Development Preferences` or `## Key Preferences`
-
-    - **Requirement / Constraint**
-      - This is a necessary condition or a boundary that must be respected. It is a non-negotiable fact that governs decisions.
-      - **Possible Keywords:** 'We must', 'the requirement is', 'we have to', 'it's mandatory that', 'the system needs to'
-      - **Example Transcript:** *"Whatever we choose, it must be self-hosted in Docker. We cannot use a third-party cloud service for transcription."*
-      - **Markdown Headings:** Place content for this category under `## Requirements and Constraints`
-
-    - **Philosophy / Approach**
-      - This represents a guiding principle, a core belief, or a high-level strategy that influences multiple decisions and actions. It is the "why" behind a series of choices.
-      - **Possible Keywords:** 'My philosophy is', 'our guiding principle is', 'we believe in', 'as a rule, we prioritize X over Y'
-      - **Example Transcript:** "Our guiding principle here is MVP optimization over long-term scalability. We need to ship products, not build a perfect cathedral."
-      - **Markdown Headings:** Place content for this category under `## Guiding Philosophies` or `## Development Approach`
-
-    - **Behavior / Pattern**
-      - This is a recurring action or a characteristic way of operating, often inferred across many interactions. It is a synthesis of multiple data points that reveals a consistent tendency.
-      - **Markdown Headings:** Place content for this category under `## Observed Behaviors` or `## Characteristic Patterns`
-      - **Example Transcript:**
-        - *Observation from EP:451:* Elena rejects a proposal for a complex, automated reporting system, stating, "Let's start by having a person manually export a CSV file once a week. We can't afford to build something no one uses."
-        - *Observation from EP:458:* During a project kickoff, Elena vetoes a plan to build a custom user authentication service, directing the team, "Use an off-the-shelf solution like Auth0. Our focus is on the core business problem, not reinventing the wheel."
-        - *Observation from EP:462:* When reviewing a new feature, Elena says, "This looks great, but what is the absolute simplest version of this we can ship next week to get feedback? Let's do that first."
-      - **Semantic Observation:** You infer that Elena consistently prioritizes the simplest, fastest path to gather user feedback and solve a core problem, actively avoiding preliminary complexity or non-essential development.
-      - **Example Capture** "Consistently prioritizes a lean, Minimum Viable Product (MVP) approach. She favors manual processes and existing solutions over building complex, custom systems upfront in order to validate ideas quickly and gather user feedback. [Inferred from EP:451, EP:458, EP:462]"
-
+  - Only these classifications of information should be captured in $SEMANTIC_ENTITY:
+    - **Fact:** An objective statement of truth that can be independently verified.  Use section heading `## Facts`.
+    - **Decision:** A conclusive resolution reached after deliberation among alternatives.  Use section heading `## Decisions`.
+    - **Action:** A specific, assigned task or commitment to perform an activity.  Use section heading `## Actions`. 
+    - **Accomplishment:** A declaration that a specific goal, task, or milestone has been successfully completed.  Use section heading `## Accomplishments`.
+    - **Suggestion:** An idea, possibility, or informal plan offered for consideration.  Use section heading `## Suggestions`. 
+    - **Preference:** An expressed partiality or greater liking for one option over others. Use section heading `## Preferences`.
+    - **Requirement:** A necessary condition, standard, or capability that must be satisfied. Use section heading `## Requirements`.
+    - **Constraint:** A boundary, limitation, or restriction that must be respected.  Use section heading `## Constraints`.
+    - **Philosophy:** A fundamental belief or guiding principle that shapes perspective and actions. Use section heading `## Philosophies`.
+    - **Pattern:** A recurring sequence of actions or events that reveals a consistent trend. Use section heading `## Patterns`.
+    - **Approach:** A conscious method or strategy for dealing with a situation or problem. Use section heading `## Approaches`.
 
 ### Extracting Topics & Entities
   - Topic folders define a **category of entities**.
