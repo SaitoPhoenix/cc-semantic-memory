@@ -470,10 +470,16 @@ class TranscriptCapturer:
         self.primary_order_counter = 1
         self.chain_order_counters: Dict[str, int] = {}
 
+        # Session information
+        self.session_id: Optional[str] = None
+
     def start_watching(self, input_filepath: str, output_filepath: str):
         """Watch input file for changes using an event-driven observer."""
         print(f"Starting to watch {input_filepath} for changes...")
         print(f"Output will be written to {output_filepath}")
+
+        # Extract session_id from input filename (without .jsonl extension)
+        self.session_id = Path(input_filepath).stem
 
         Path(output_filepath).parent.mkdir(parents=True, exist_ok=True)
         if not Path(output_filepath).exists():
@@ -799,6 +805,7 @@ class TranscriptCapturer:
                 sum(1 for c in self.conversations if not c.is_sidechain),
             ],
             ["sidechain_count", sum(1 for c in self.conversations if c.is_sidechain)],
+            ["session_id", self.session_id or "unknown"],
         ]
 
         return {
@@ -846,6 +853,8 @@ def main():
     try:
         if args.test_once:
             # --- CHANGED: Logic for single-run processing ---
+            # Extract session_id from input filename for test mode
+            capturer.session_id = Path(args.input).stem
             capturer._write_initial_output(args.output)
             if Path(args.input).exists():
                 # Open, process all content, then close.
