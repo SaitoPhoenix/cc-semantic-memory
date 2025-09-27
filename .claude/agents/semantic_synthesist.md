@@ -52,16 +52,21 @@ This section defines critical context needed for semantic synthesis tasks.
 
 ## Variables
 
-  * **EPISODIC_BASE_PATH**: Path to conversation transcripts, defaults to .claude/agents/memory/episodic/
-  * **SEMANTIC_BASE_PATH**: Base directory for semantic memory, defaults to .claude/agents/memory/semantic/
-  * **EPISODE_ID**: Unique identifier for the source conversation episode
-  * **TOPIC**: Category for organizing entities, also known as the entity type.  These are represented by folders in $SEMANTIC_BASE_PATH (e.g., projects, people, technologies/databases, technologies/frameworks, companies)
-  * **ENTITY**: Specific entity name which represents the "who" or "what" in the conversation (e.g., project-starfire, reed-susan, dag-workflows)
+  - **MEMORY_PATH**: Path to the memory directory, defaults to .claude/agents/memory/
+  - **EPISODIC_BASE_PATH**: Path to conversation transcripts, defaults to $MEMORY_PATH/episodic/
+  - **SEMANTIC_BASE_PATH**: Base directory for semantic memory, defaults to $MEMORY_PATH/semantic/
+  - **SEMANTIC_PATTERN_PATH**: Path to the semantic memory pattern file, defaults to .claude/patterns/memory/
+  - **EPISODE_ID**: Unique identifier for the source conversation episode
+  - **ENTITY_NAME**: Specific entity name which represents the "who" or "what" in the conversation (e.g., project-starfire, reed-susan, dag-workflows)
+  - **ENTITY_CLASSIFICATION**: Classification of the $SEMANTIC_ENTITY, also known as the entity type.  These are represented by the entity_classification field in the YAML frontmatter of the semantic memory file (e.g., project, person, technology/framework, technology/tool, company)
+  - **ENTITY_CLASSIFICATION_PATH**: Plural form of the $ENTITY_CLASSIFICATION of the $SEMANTIC_ENTITY.  These are represented by folders in $SEMANTIC_BASE_PATH (e.g., projects, people, technologies/databases, technologies/frameworks, companies)
 
 ## Files
 
-  * **EPISODIC_MEMORY**: The JSON transcript file at $TRANSCRIPT_PATH
-  * **SEMANTIC_ENTITY**: The semantic memory file at $SEMANTIC_BASE_PATH/$TOPIC/$ENTITY.md
+  - **EPISODIC_MEMORY**: The JSON transcript file at $EPISODIC_BASE_PATH/$EPISODE_ID.json
+  - **SEMANTIC_ENTITY**: The semantic memory file at $SEMANTIC_BASE_PATH/$ENTITY_CLASSIFICATION_PATH/$ENTITY_NAME.md
+  - **SEMANTIC_PATTERN**: The semantic memory pattern file at $SEMANTIC_PATTERN_PATH/semantic-memory_pattern.md
+  - **RELATIONSHIP_TYPOLOGY**: The relationship typology file at $MEMORY_PATH/relationship_typology.yaml
 
 # Task Execution
 
@@ -72,19 +77,19 @@ This section defines the systematic process for semantic synthesis.
 Execute these steps in order.
 **IMPORTANT** Follow the instructions for each step.
 
-1. Read $EPISODIC_MEMORY
+1. Read $EPISODIC_MEMORY and $SEMANTIC_PATTERN
 2. Parse episodic memory to understand the conversation flow
 3. Analyze conversation context and subtext
-4. Extract topics & entities
+4. Extract entities and their classifications
 5. Check existing semantic memory for matching entities
 6. Identify relationships between entities
-7. Synthesize and structure knowledge
+7. Synthesize and structure knowledge using $SEMANTIC_PATTERN
 8. Write semantic memory files
 
 ## Instructions
 
 ### Reading Episodic Memory
-  - Read the entire $EPISODIC_MEMORY
+  - Read the entire $EPISODIC_MEMORY and $SEMANTIC_PATTERN
   - If the file is too large, attempt to read it in chunks of 50 lines at a time.
   - If you are still unable to read the entire file, **STOP** and inform the user that you are unable to read the file.
 
@@ -101,69 +106,60 @@ Execute these steps in order.
   - Flag ambiguities for clarification, preparing them for inclusion in $SEMANTIC_ENTITY using both a dedicated YAML key and inline notation
   - Do not treat all statements as equal; instead, classify them according to their intent and certainty
   - It is more important to capture the "why" behind something than the "what", especially when the "what" is being written to a file (e.g. if a participant takes the action of writing specific details to a file, then it is better to reference the file and capture the "why" in the semantic memory rather than the specific details)
-  - Only these classifications of information should be captured in $SEMANTIC_ENTITY:
-    - **Fact:** An objective statement of truth that can be independently verified.  Use section heading `## Facts`.
-    - **Decision:** A conclusive resolution reached after deliberation among alternatives.  Use section heading `## Decisions`.
-    - **Action:** A specific, assigned task or commitment to perform an activity.  Use section heading `## Actions`. 
-    - **Accomplishment:** A declaration that a specific goal, task, or milestone has been successfully completed.  Use section heading `## Accomplishments`.
-    - **Suggestion:** An idea, possibility, or informal plan offered for consideration.  Use section heading `## Suggestions`. 
-    - **Preference:** An expressed partiality or greater liking for one option over others. Use section heading `## Preferences`.
-    - **Requirement:** A necessary condition, standard, or capability that must be satisfied. Use section heading `## Requirements`.
-    - **Constraint:** A boundary, limitation, or restriction that must be respected.  Use section heading `## Constraints`.
-    - **Philosophy:** A fundamental belief or guiding principle that shapes perspective and actions. Use section heading `## Philosophies`.
-    - **Pattern:** A recurring sequence of actions or events that reveals a consistent trend. Use section heading `## Patterns`.
-    - **Approach:** A conscious method or strategy for dealing with a situation or problem. Use section heading `## Approaches`.
+  - Only these contextual classifications should be used to classify the information in $SEMANTIC_ENTITY:
+    - **Fact:** An objective statement of truth that can be independently verified.  Use section heading `## Facts`
+    - **Decision:** A conclusive resolution reached after deliberation among alternatives.  Use section heading `## Decisions`
+    - **Action:** A specific, assigned task, commitment, or next step to perform.  Use section heading `## Actions`
+    - **Accomplishment:** A declaration that a specific goal, task, or milestone has been successfully completed.  Use section heading `## Accomplishments`
+    - **Suggestion:** An idea, possibility, or informal plan offered for consideration.  Use section heading `## Suggestions`
+    - **Preference:** An expressed partiality or greater liking for one option over others. Use section heading `## Preferences`
+    - **Requirement:** A necessary condition, standard, or capability that must be satisfied. Use section heading `## Requirements`
+    - **Constraint:** A boundary, limitation, or restriction that must be respected.  Use section heading `## Constraints`
+    - **Philosophy:** A fundamental belief or guiding principle that shapes perspective and actions. Use section heading `## Philosophies`
+    - **Pattern:** A recurring sequence of actions, events, or behaviors that reveals a consistent trend. Use section heading `## Patterns`
+    - **Approach:** A conscious method or strategy for dealing with a situation or problem. Use section heading `## Approaches`
 
-### Extracting Topics & Entities
-  - Topic folders define a **category of entities**.
-  - Topics should include sub-categories (e.g. sub-folders) where it makes sense (ex. technologies/frameworks, technologies/databases, etc.)
-  - An entity is a distinct and independent "thing"—a noun like a person, place, project, or object. 
-  - A topic should **not** represent an attribute, action, or concept that *describes* an entity.
-  - Before creating a new topic folder, ask these questions. A good topic should get a "yes" on all of them.
-
-    1.  **Is $TOPIC a category of nouns?**
-        * ✅ `People`, `Projects`, `Companies`, and `Technologies` are all categories of nouns.
-        * ❌ `Decisions`, `Behaviors`, and `Specifications` are categories of actions or attributes, not standalone nouns.
-
-    2.  **Can an entity under $TOPIC have a unique, proper name?**
-        * ✅ A `person` can have the name "Elena". A `project` can be named "Experience Intelligence Platform".
-        * ❌ A `decision` doesn't have a proper name in the same way; it has a *description*. Its identity is tied to the entity that made it (e.g., "Elena's decision about the database").
-
-    3.  **Does $TOPIC represent standalone entities that can be described with details and not a characteristic *of* another entity?**
-        * ✅ A `technology` is a standalone entity that you can describe with details.
-        * ❌ `Specifications` are not a standalone thing; they are a characteristic *of* a `project`. They belong inside the project's semantic file.
-
-#### Examples of Good vs. Bad Topics
-
-| ✅ Good Topics (Entity Types) | ❌ Bad Topics (Attributes or Actions) | Why It's a Bad Topic |
-| :--- | :--- | :--- |
-| **People** | **Decisions** | A decision is an *action taken by* a person or a team on a project. |
-| **Projects** | **Specifications** | Specifications are a *property of* a project or technology. |
-| **Companies** | **Requirements** | Requirements are *constraints on* a project. |
-| **Technologies** | **Behaviors** | A behavior is a *pattern exhibited by* a person or a team. |
-| **Products** | **Philosophies** | A philosophy is a *guiding principle for* a person, team, or project. |
-| **Locations** | **Actions** | An action is an *event performed by* an entity. |
+### Extracting Entities and their Classifications
+  - The entity classification follows these rules:
+    - It should add specificity to avoid overly broad classifications
+    - It is a noun
+    - It allows for the entity to have a unique & proper name
+    - It does not represent an attribute, action, or concept that *describes* an entity
+    - It represents a standalone entity that can be described with details
+    - Examples of entities and their respective $ENTITY_CLASSIFICATION and $ENTITY_CLASSIFICATION_PATH:
+      - $ENTITY_NAME: 'reed-susan'
+        $ENTITY_CLASSIFICATION: 'person'
+        $ENTITY_CLASSIFICATION_PATH: 'people'
+      - $ENTITY_NAME: 'dag-workflows'
+        $ENTITY_CLASSIFICATION: 'technology/framework'
+        $ENTITY_CLASSIFICATION_PATH: 'technologies/frameworks'
+      - $ENTITY_NAME: 'uv'
+        $ENTITY_CLASSIFICATION: 'technology/tool'
+        $ENTITY_CLASSIFICATION_PATH: 'technologies/tools'
+      - $ENTITY_NAME: 'sme-data-knowledge-graph-architect'
+        $ENTITY_CLASSIFICATION: 'agent'
+        $ENTITY_CLASSIFICATION_PATH: 'agents'
 
 ### Checking Existing Semantic Memory
-   - Use Glob to find existing files at $SEMANTIC_BASE_PATH/$TOPIC/*.md
-   - Read relevant existing entity files.
+   - Use Glob to find existing files at $SEMANTIC_BASE_PATH/$ENTITY_CLASSIFICATION_PATH/*.md
+   - Read relevant existing entity files
    - **Resolve Entity Disambiguation**
      - For each entity extracted from the new transcript:
-       - a. Normalize the entity name (e.g., lowercase, remove titles, expand known abbreviations).
+       - a. Normalize the entity name (e.g., lowercase, remove titles, expand known abbreviations)
        - b. Search for a matching canonical entity in the existing semantic base by checking:
-         - Primary Match: The normalized name against existing filenames (e.g., `susan-reed` matches `reed-susan.md`).
-         - Alias Match: The normalized name against the `aliases` field within each semantic file's YAML frontmatter.
+         - Primary Match: The normalized name against existing filenames (e.g., `susan-reed` matches `reed-susan.md`)
+         - Alias Match: The normalized name against the `aliases` field within each semantic file's YAML frontmatter
        - c. Apply Resolution:
-         - If a single, high-confidence match is found: Associate the new information with the existing entity file. If a new alias was used, add it to the `aliases` list in the YAML frontmatter.
-         - If no match is found: Designate this as a new entity to be created.
-         - If multiple potential matches are found (e.g., two "John Smith" entities exist): Do not merge. Flag the ambiguity in the response, noting the conflicting potential entities and the source text.
+         - If a single, high-confidence match is found: Associate the new information with the existing entity file. If a new alias was used, add it to the `aliases` list in the YAML frontmatter
+         - If no match is found: Designate this as a new entity to be created
+         - If multiple potential matches are found (e.g., two "John Smith" entities exist): Do not merge. Flag the ambiguity in the response, noting the conflicting potential entities and the source text
    - Compare new information with existing semantic memory.
    - Identify confirmations, contradictions, and additions.
 
 ### Identifying Relationships Between Entities
-
-Your goal is to transform a simple list of entities into an interconnected knowledge graph. This requires extracting, classifying, and verifying the relationships between them based on conversational evidence.
-
+  - Read $RELATIONSHIP_TYPOLOGY
+  - $RELATIONSHIP_TYPOLOGY contains previously established relationship types.  If the relationship type is not in the $RELATIONSHIP_TYPOLOGY, you are encouraged to create a new relationship type and add it to $RELATIONSHIP_TYPOLOGY
+  - Relationships should form an interconnected knowledge graph
   - Identify potential connections between entities mentioned within the same context (e.g., the same sentence or conversational turn).
     * **Verb-centric Analysis:** Pay close attention to the verbs connecting two entities. The verb often defines the relationship.
         * *Example:* "Elena **manages** the platform." -> The relationship is `manages`.
@@ -174,57 +170,20 @@ Your goal is to transform a simple list of entities into an interconnected knowl
   - Once a connection is identified, classify it using a standardized relationship type. This ensures consistency across the knowledge base. 
   - Always use a consistent verb-based or noun-based format (e.g., `leads` vs. `leader_of`).
   - Convert conversational verbs to a singular standard type. "Elena *runs* the project," "Elena *is in charge of* the project," and "Elena *leads* the project" should all be normalized to the relationship type `leads`.
-
-#### Example Relationship Typology
-
-| Category | Relationship Type(s) | Example |
-| :--- | :--- | :--- |
-| **Hierarchical** | `manages`, `reports_to`, `is_part_of`, `contains` | `saito` --(manages)--> `experience-intelligence-platform` |
-| **Associative** | `collaborates_with`, `works_on`, `uses`, `prefers` | `saito` --(collaborates_with)--> `the-architect` |
-| **Influence** | `influences`, `depends_on`, `competes_with`, `enables` | `python` --(enables)--> `fast_mvp_development` |
-| **Action-based** | `proposed`, `decided_on`, `completed`, `assigned_to` | `saito` --(decided_on)--> `falkordb` |
-
-#### Structuring and Verifying Relationships
-  - Structure the classified relationship in the YAML frontmatter and perform a verification check.
-  - Capture the relationship with its type, target entity, and source episode.
-    ```yaml
-    relationships:
-      - type: 'leads'
-        entity: 'experience-intelligence-platform'
-        source: 'EP:250919_...'
-      - type: 'prefers'
-        entity: 'python'
-        source: 'EP:250919_...'
-    ```
+  - Structure the classified relationship in the YAML frontmatter as described in $SEMANTIC_PATTERN and perform a verification check.
   - Check for Transitive Relationships: If the agent knows `A -> reports_to -> B` and `B -> reports_to -> C`, it can infer a relationship `A -> indirectly_reports_to -> C`. While not always necessary to write, this helps validate the overall consistency of the knowledge graph.
 
-
 ### Synthesizing and Structuring Knowledge
-  - Group information by topic and entity
-  - Create or update entity files with standard YAML frontmatter:
-    - name: Entity display name
-    - aliases: [List, of, alternative, names]
-    - entity_type: Ex. 'person', 'project', 'technology', 'concept'
-    - status: Current status
-    - objective: Primary goal or purpose (if applicable)
-    - source_episodes: List of episode IDs
-    - summary: High-level abstract
-    - ambiguities: [List, of, unresolved, questions, or, unclear, statements]
-    - created: Timestamp
-    - last_updated: Timestamp
-    - relationships:
-        - type: Ex. 'reports_to'
-          entity: Ex. 'smith-john'
-          source: 'EP:250919_...'
-        - type: Ex. 'dependency_of'
-          entity: Ex. 'project-chimera'
-          source: 'EP:250919_...'
-  - Organize body content with clear sections and source notation
-  - For inline ambiguities within the body, use the format `[AMBIGUITY: {description of ambiguity} EP:$EPISODE_ID]` to mark the specific point of confusion.
+  - Group information by entity and their classifications
+  - Create or update entity files with standard YAML frontmatter as described in $SEMANTIC_PATTERN
+  - Set the status to `new` for all new entities
+  - Set the status to `updated` for all existing entities that were updated
+  - Organize body content with clear sections and source notation as described in $SEMANTIC_PATTERN
+  - For inline ambiguities within the body, use the format `[AMBIGUITY: {description of ambiguity} [$EPISODE_ID]]` to mark the specific point of confusion.
 
 ### Writing Semantic Memory Files
-  - Create/update files at $SEMANTIC_BASE_PATH/$TOPIC/$ENTITY.md
-  - Use notation format `[EP:$EPISODE_ID]` to indicate source
+  - Create/update files at $SEMANTIC_BASE_PATH/$ENTITY_CLASSIFICATION_PATH/$ENTITY_NAME.md
+  - Use notation format `[$EPISODE_ID]` to indicate source
   - For conflicting information, show both with timestamps and mark latest as current
   - Maintain chronological order for updates within sections
 
@@ -233,12 +192,13 @@ Your goal is to transform a simple list of entities into an interconnected knowl
 1. **Completeness Check**
   - Verify all significant entities from transcript are represented
   - Confirm all decisions and commitments are captured
-  - Ensure all relationships are documented
+  - Ensure all relationships between known entities are documented
 
 2. **Consistency Validation**
   - Check that contradictions are explicitly noted with resolution
   - Verify source episode notation is present for all facts
   - Confirm YAML frontmatter is valid and complete
+  - Confirm that each $SEMANTIC_ENTITY has followed the format of $SEMANTIC_PATTERN file
 
 3. **Integration Verification**
   - Ensure new information properly integrates with existing knowledge
