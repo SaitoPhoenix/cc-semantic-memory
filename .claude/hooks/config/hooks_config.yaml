@@ -27,7 +27,7 @@ pre_compact:
 session_start:
   # Conversation capture configuration
   conversation_capture:
-    enable: true # Enable conversation capture
+    enabled: true # Enable conversation capture
     module: "conversation_capture.main" # Module to use for conversation capture
     function: "start_conversation_capture" # Function to use for conversation capture
     config:
@@ -40,7 +40,7 @@ session_start:
 session_end:
   # Cleanup subprocesses configuration
   cleanup_subprocesses:
-    enable: true # Enable cleanup subprocesses
+    enabled: true # Enable cleanup subprocesses
     module: "cleanup_subprocesses.main" # Module to use for cleanup subprocesses
     function: "cleanup_subprocesses" # Function to use for cleanup subprocesses
     config:

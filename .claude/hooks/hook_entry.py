@@ -32,15 +32,14 @@ def main(hook_name):
         hook_config = load_hook_config(hook_name)
         global_config = load_global_config()
         input_data = json.loads(sys.stdin.read())
-        print(f"Input data: {input_data}")
         if not hook_config:
             print(f"No {hook_name} hook in configuration. Exiting.")
             sys.exit(0)
 
-        for task in hook_config:
+        for task_name, task in hook_config.items():
             # Only run tasks that are explicitly enabled
             if not task.get("enabled", False):
-                print(f"Skipping disabled task: '{task['module']}'")
+                print(f"Skipping disabled task: '{task_name}'")
                 continue
 
             try:
@@ -48,14 +47,12 @@ def main(hook_name):
                 function_name = task["function"]
                 task_module = importlib.import_module(f"tasks.{module_name}")
                 task_function = getattr(task_module, function_name)
-                task_config = task.get("config", {})
+                task_config = task.get("config") or {}
                 task_args = {
                     "input_data": input_data,
                     "global_config": global_config,
                     **task_config,
                 }
-                print(f"Running task: {module_name}.{function_name}")
-                print(f"Task args: {task_args}")
                 task_function(**task_args)
 
             except ModuleNotFoundError:
