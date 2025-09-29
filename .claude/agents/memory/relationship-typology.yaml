@@ -30,3 +30,4 @@ action-based:
   - leads                   # Entity directs or is in charge of another.
   - preferred_by            # Entity is favored or chosen by another.
   - used_by                 # Entity is utilized or employed by another.
+  - guided_by               # Entity receives direction or principles from another.
