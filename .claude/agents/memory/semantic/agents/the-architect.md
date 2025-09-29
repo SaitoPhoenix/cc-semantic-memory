@@ -2,7 +2,7 @@
 name: The Architect
 aliases: []
 entity_classification: agent
-status: new
+status: active
 created: 2025-09-29T17:50:00-05:00
 last_updated: 2025-09-29T17:50:00-05:00
 source_episodes:
