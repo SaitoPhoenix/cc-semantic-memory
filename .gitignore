@@ -181,4 +181,5 @@ temp/
 .mcp.json
 .claude/agents/claude-configuration-dev.md
 .claude/agents/meta-agent.md
+.claude/commands/temp.md
 #CLAUDE.md
