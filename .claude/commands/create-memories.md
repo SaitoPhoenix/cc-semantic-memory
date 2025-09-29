@@ -1,5 +1,6 @@
 ---
 description: Sets up and runs the memory creation process
+argument-hint: [episodic memory file]
 ---
 
 # Create Memories
