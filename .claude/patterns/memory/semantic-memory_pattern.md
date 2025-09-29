@@ -109,6 +109,38 @@ relationships:
   - **Another-Key:** <Value>
   - <...>
 
+<!-- Required Keys:
+
+Actions:
+  - Priority # Critical, High, Medium, Low, None
+  - Owner # Name of the person responsible for the action
+  - Status # Not Started, Blocked, In Progress, Done
+  - Description # Description of the action
+  - Created # YYYY-MM-DD
+  - Due # YYYY-MM-DD (set to none if not provided)
+
+Decisions:
+  - Category # Grouping for similar decisions and area of impact
+  - Status # Open, Final, Archived
+  - Created # YYYY-MM-DD
+  - Rationale # Reasoning for the decision
+  - Impact # Describe areas that are affected by the decision
+
+Requirements:
+  - Category # Grouping for similar requirements and area of impact
+  - Priority # Critical, High, Medium, Low
+  - Status # Open, Fulfilled, Rejected
+  - Details # Description of the requirement
+  - Created # YYYY-MM-DD
+  
+Constraints:
+  - Category # Grouping for similar constraints and area of impact
+  - Status # Active, Inactive
+  - Scope # Describe the scope of the constraint
+  - Reason # Reasoning for the constraint
+  - Created # YYYY-MM-DD
+-->
+
 <!-- Examples:
 ## Decisions
 
@@ -129,17 +161,22 @@ relationships:
 ## Actions
 
 - **Task: Document the new integration with Graphiti** [250927_MEET_3]
+  - **Priority:** High (other priorities: Med, Low, Undefined)
   - **Owner:** George Miller
-  - **Status:** Not Started
+  - **Status:** Not Started (other statuses: Blocked, In Progress, Done)
+  - **Blocker:** None
+  - **Description:** Document the new integration with Graphiti
   - **Created:** 2025-09-27
-  - **Due:** 2025-10-04
+  - **Due:** 2025-10-04 (set to none if not provided)
 
 - **Task: Evaluate three alternative data visualization libraries for the new dashboard** [250927_FE_GUILD_4]
+  - **Priority:** High (other priorities: Med, Low, Undefined)
   - **Owner:** Frontend Team
-  - **Status:** Blocked
+  - **Status:** Blocked (other statuses: Not Started, In Progress, Done)
   - **Blocker:** Awaiting final requirements from the Product team
+  - **Description:** Evaluate three alternative data visualization libraries for the new dashboard
   - **Created:** 2025-09-27
-  - **Due:** 2025-10-24
+  - **Due:** 2025-10-24 (set to none if not provided)
 
 ## Constraints
 
