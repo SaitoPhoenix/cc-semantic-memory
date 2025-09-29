@@ -325,8 +325,8 @@ The Reviewer agent automatically commits semantic memory changes:
 
 ## License
 
-[Specify your license]
+MIT License - See LICENSE file for details
 
 ## Contributing
 
-[Specify contribution guidelines if applicable]
+Contributions are welcome! Please feel free to submit an issue or a pull request.
