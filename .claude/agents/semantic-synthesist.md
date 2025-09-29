@@ -66,7 +66,7 @@ This section defines critical context needed for semantic synthesis tasks.
   - **EPISODIC_MEMORY**: The JSON transcript file at $EPISODIC_BASE_PATH/$EPISODE_ID.json
   - **SEMANTIC_ENTITY**: The semantic memory file at $SEMANTIC_BASE_PATH/$ENTITY_CLASSIFICATION_PATH/$ENTITY_NAME.md
   - **SEMANTIC_PATTERN**: The semantic memory pattern file at $SEMANTIC_PATTERN_PATH/semantic-memory_pattern.md
-  - **RELATIONSHIP_TYPOLOGY**: The relationship typology file at $MEMORY_PATH/relationship_typology.yaml
+  - **RELATIONSHIP_TYPOLOGY**: The relationship typology file at $MEMORY_PATH/relationship-typology.yaml
 
 # Task Execution
 
