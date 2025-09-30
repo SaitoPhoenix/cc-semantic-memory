@@ -3,7 +3,7 @@ name: npm
 aliases:
   - Node Package Manager
 entity_classification: technology/tool
-status: new
+status: review-needed
 created: 2025-09-30T10:07-05:00
 last_updated: 2025-09-30T10:07-05:00
 source_episodes:
