@@ -285,7 +285,7 @@ Synthesizes semantic knowledge from an episodic memory transcript.
 - YAML frontmatter validation
 - Status management and git commits
 
-**Tools:** Read, Glob, Grep, MultiEdit, Bash
+**Tools:** Read, Glob, Grep, MultiEdit, Bash, Edit, Write
 
 ## Technical Details
 
