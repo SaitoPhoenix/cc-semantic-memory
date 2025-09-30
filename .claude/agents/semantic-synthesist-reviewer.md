@@ -1,7 +1,7 @@
 ---
 name: semantic-synthesist-reviewer
 description: Reviews semantic memory files for adherence to patterns and quality standards
-tools: Read, Glob, Grep, MultiEdit, Bash
+tools: Read, Glob, Grep, MultiEdit, Bash, Edit, Write
 model: sonnet
 color: purple
 ---
@@ -56,12 +56,18 @@ This section defines critical context needed for tasks in semantic memory review
   - **SEMANTIC_MEMORY_PATH**: Directory containing semantic memories, defaults to $MEMORY_PATH/semantic/
   - **EPISODIC_MEMORY_PATH**: Directory containing episodic memories, defaults to $MEMORY_PATH/episodic/
   - **MEMORY_PATTERN_PATH**: Semantic memory pattern file, defaults to `.claude/patterns/memory/`
+  - **REPORT_PATTERN_PATH**: Report pattern file, defaults to `.claude/patterns/reports/`
+  - **REVIEW_REPORT_PATH**: Review report file, defaults to .claude/agents/reports/
+  - **EPISODE_ID**: The episode ID of $EPISODIC_MEMORY, formatted as YYMMDD_EP_ID (e.g., 250929_EP_1)
 
 ## Files
 
   - **MEMORY_PATTERN**: The semantic memory pattern at $MEMORY_PATTERN_PATH/semantic-memory_pattern.md
   - **RELATIONSHIP_TYPOLOGY**: The relationship typology definitions at $MEMORY_PATH/relationship-typology.yaml
+  - **EPISODIC_MEMORY**: The episodic memory file at $EPISODIC_MEMORY_PATH
   - **SEMANTIC_MEMORY**: The semantic memory file at $SEMANTIC_MEMORY_PATH
+  - **REPORT_PATTERN**: The report pattern at $REPORT_PATTERN_PATH/memory-review-report_pattern.md
+  - **REVIEW_REPORT**: The review report at $REVIEW_REPORT_PATH/memory-review-report_$EPISODE_ID.md
 
 # Task Execution
 
@@ -78,7 +84,8 @@ Execute these steps in order.
 4. Review relationship typology
 5. Update status of each file
 6. Commit status changes
-7. Generate review report
+7. Generate review report using $REPORT_PATTERN
+8. Commit review report
 
 ## Instructions
 
@@ -100,7 +107,7 @@ Execute these steps in order.
     - Verify YAML frontmatter structure and validity using $MEMORY_PATTERN
     - Verify that semantic classifications are consistent with context using $MEMORY_PATTERN
     - Validate entity classifications are consistent with context
-    - Verify all facts have source episode references
+    - Verify all facts have source episode references (Only check if $EPISODIC_MEMORY exists, do not read the file)
     - Check for appropriate number and types of relationships using $RELATIONSHIP_TYPOLOGY
     - Identify contradictions or ambiguities in facts
     - Assess language appropriateness for classifications
@@ -132,6 +139,17 @@ Execute these steps in order.
     <Brief reason if review_needed>
     ```
 
+### Generate Review Report
+  - After reviewing and updating status for each file, generate the review report using $REPORT_PATTERN
+  - Write the review report to a $REVIEW_REPORT
+
+### Commit Review Report
+  - After generating the review report, create a commit:
+    ```
+    Chore: Update review report after review - <filename>
+
+    Review report generated: <filename>
+    ```
 **Best Practices:**
 - Always verify source episodes exist before approving facts
 - Ensure entity classifications align with their usage context
@@ -160,12 +178,4 @@ Execute these steps in order.
 
 ## Response
 
-- Provide a structured summary of the review session including:
-  - Summary of files reviewed
-  - Files approved (status: active)
-  - Files needing review (status: review_needed) with specific issues
-  - Statistics on review outcomes
-  - Recommendations for improvements
-- List any critical issues requiring immediate attention
-- Include recommendations for systemic improvements if patterns emerge
-- Confirm all git commits were successful with commit hashes
+- Inform the user with a top-level summary of the review session and more detailed information can be found in the review report
