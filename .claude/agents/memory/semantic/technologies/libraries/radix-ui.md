@@ -1,35 +1,33 @@
 ---
 name: Radix UI
-aliases: []
+aliases:
+  - Radix
 entity_classification: technology/library
-status: active
-created: 2025-09-29T17:50:00-05:00
-last_updated: 2025-09-29T17:50:00-05:00
+status: new
+created: 2025-09-30T10:07-05:00
+last_updated: 2025-09-30T10:07-05:00
 source_episodes:
   - 250929_EP_1
-summary: A collection of low-level, unstyled, accessible UI primitive components. Forms the foundation for Shadcn/ui components, providing accessibility features.
+summary: Unstyled, accessible UI primitive components. Foundation layer for Shadcn/ui components.
 ambiguities: []
 relationships:
-  - type: used_by
+  - type: enables
     entity: shadcn-ui
-    description: Shadcn/ui is built on top of Radix UI primitives
-    role: foundation library
+    description: Provides accessible primitives that Shadcn/ui builds upon
+    role: foundation layer
     source: 250929_EP_1
 ---
 
 ## Facts
 
-### Role in Project
-- Provides accessibility features for Shadcn/ui components [250929_EP_1]
-- Acts as the primitive foundation that Shadcn/ui builds upon [250929_EP_1]
+### Purpose
+- Provides accessibility features for UI components [250929_EP_1]
+- Shadcn/ui is built on top of Radix UI primitives [250929_EP_1]
+- Adds Radix packages as dependencies when using Shadcn/ui [250929_EP_1]
 - Generally stable architecture [250929_EP_1]
-- Learning Radix UI primitives improves accessible component design skills [250929_EP_1]
 
-## Constraints
+## Patterns
 
-- **Shadcn/ui dependency** [250929_EP_1]
-  - **Category:** Technical Dependency
-  - **Status:** Active
-  - **Scope:** All Shadcn/ui interactive components
-  - **Reason:** Shadcn/ui requires Radix UI for accessibility primitives
-  - **Created:** 2025-09-29
+### Learning Opportunity
+- Using Shadcn/ui teaches Radix UI primitives [250929_EP_1]
+- Improves skills in accessible component design [250929_EP_1]
