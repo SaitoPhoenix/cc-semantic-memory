@@ -3,7 +3,7 @@ name: Radix UI
 aliases:
   - Radix
 entity_classification: technology/library
-status: new
+status: active
 created: 2025-09-30T10:07-05:00
 last_updated: 2025-09-30T10:07-05:00
 source_episodes:
