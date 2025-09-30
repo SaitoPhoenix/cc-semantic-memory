@@ -2,50 +2,54 @@
 name: React
 aliases: []
 entity_classification: technology/framework
-status: active
-created: 2025-09-29T17:50:00-05:00
-last_updated: 2025-09-29T17:50:00-05:00
+status: new
+created: 2025-09-30T10:07-05:00
+last_updated: 2025-09-30T10:07-05:00
 source_episodes:
   - 250929_EP_1
-summary: A JavaScript library for building user interfaces, particularly single-page applications. Foundation framework for Project Alpha and the basis for multiple modern web development stacks.
+summary: JavaScript library for building user interfaces. Core framework for Project Alpha and preferred by Saito.
 ambiguities: []
 relationships:
   - type: preferred_by
     entity: saito
-    description: Saito is a fan of React for frontend development
-    role: framework
+    description: Saito is a fan of React
+    role: preferred technology
     source: 250929_EP_1
   - type: used_by
     entity: project-alpha
-    description: Core frontend framework for the gamification project
-    role: framework
+    description: Core UI framework for the project
+    role: primary framework
     source: 250929_EP_1
   - type: works_with
-    entity: next-js
-    description: Next.js is built on top of React
-    role: base framework
+    entity: typescript
+    description: Commonly used together for type safety
+    role: UI framework
     source: 250929_EP_1
   - type: works_with
     entity: vite
-    description: Vite provides fast build tooling for React projects
+    description: Build tool for React development
     role: framework
     source: 250929_EP_1
   - type: complements
-    entity: typescript
-    description: Often used together for type-safe React development
-    role: framework
+    entity: zustand
+    description: State management solution for React
+    role: UI framework
+    source: 250929_EP_1
+  - type: complements
+    entity: tanstack-query
+    description: Server state management for React
+    role: UI framework
     source: 250929_EP_1
 ---
 
 ## Facts
 
-### Ecosystem
-- Forms the foundation for multiple full-stack frameworks including Next.js, Remix, and Gatsby [250929_EP_1]
-- Compatible with various state management solutions like Redux Toolkit, Zustand, and Jotai [250929_EP_1]
-- Works with multiple styling solutions including Tailwind CSS, Styled Components, and CSS Modules [250929_EP_1]
-- Supported by numerous component libraries like Shadcn/ui, Chakra UI, and MUI [250929_EP_1]
+### Popular Stacks
+- Next.js + TypeScript + Tailwind + TanStack Query is industry standard for production apps [250929_EP_1]
+- Vite + React + TypeScript + Zustand + Tailwind provides fast development experience [250929_EP_1]
+- Next.js + TypeScript + tRPC + Prisma + Tailwind (T3 Stack) offers full-stack type safety [250929_EP_1]
 
-### Popular Stack Combinations
-- Next.js + TypeScript + Tailwind + TanStack Query identified as industry standard for production apps [250929_EP_1]
-- Vite + React + TypeScript + Zustand + Tailwind noted for fast development experience [250929_EP_1]
-- Next.js + TypeScript + tRPC + Prisma + Tailwind (T3 Stack) for full-stack type safety [250929_EP_1]
+### Framework Options
+- Next.js is the most popular choice for React, offering SSR, SSG, API routes, and file-based routing [250929_EP_1]
+- Remix focuses on web fundamentals, nested routes, and progressive enhancement [250929_EP_1]
+- Gatsby specializes in static site generation with a rich plugin ecosystem [250929_EP_1]
