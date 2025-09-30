@@ -2,38 +2,44 @@
 name: Vite
 aliases: []
 entity_classification: technology/tool
-status: active
-created: 2025-09-29T17:50:00-05:00
-last_updated: 2025-09-29T17:50:00-05:00
+status: new
+created: 2025-09-30T10:07-05:00
+last_updated: 2025-09-30T10:07-05:00
 source_episodes:
   - 250929_EP_1
-summary: A next-generation build tool that provides significantly faster development experience than traditional bundlers like Webpack. Selected as the build tool for Project Alpha.
+summary: Next-generation build tool that provides significantly faster development experience than traditional bundlers. Selected for Project Alpha.
 ambiguities: []
 relationships:
   - type: used_by
     entity: project-alpha
-    description: Selected as the build tool for fast development iteration
+    description: Build tool for the project
     role: build tool
     source: 250929_EP_1
   - type: works_with
     entity: react
-    description: Provides fast build tooling for React projects
-    role: build tool
+    description: Build tool for React applications
+    role: bundler
     source: 250929_EP_1
-  - type: complements
+  - type: works_with
     entity: typescript
-    description: Provides excellent TypeScript support out of the box
+    description: Supports TypeScript out of the box
     role: build tool
     source: 250929_EP_1
 ---
 
 ## Facts
 
-### Performance Characteristics
+### Performance
 - Significantly faster than Webpack/Create React App [250929_EP_1]
 - Uses native ES modules for instant hot reload [250929_EP_1]
 - Optimized production builds with Rollup [250929_EP_1]
 
-### Development Benefits
-- Enables fast iteration which is crucial for gamification development [250929_EP_1]
-- Part of the recommended stack for fast development experience [250929_EP_1]
+### Development Experience
+- Fast iteration capability [250929_EP_1]
+- Part of recommended stack: Vite + React + TypeScript + Zustand + Tailwind [250929_EP_1]
+
+## Philosophies
+
+### Speed-Focused Development
+- Enables rapid styling experimentation when paired with Tailwind [250929_EP_1]
+- Supports fast iteration for game-like interactions in Project Alpha [250929_EP_1]
