@@ -134,7 +134,23 @@ The repository includes example memories to demonstrate the structure:
 2. Delete `.claude/agents/memory/semantic/` contents
 3. Keep `.claude/agents/memory/relationship-typology.yaml`
 
-### Creating Semantic Memories
+### Using Semantic Memories
+
+**To access memories in a session:**
+
+1. Start a new Claude Code session
+2. Run the prime-memories command:
+```
+/prime-memories Saito The-Architect
+```
+
+3. The agent will:
+   - Load your semantic memory and its own agent memory
+   - Display an action register with current tasks
+   - Automatically read relevant semantic memories when entities are mentioned
+   - Maintain context throughout the conversation
+
+**To create semantic memories:**
 
 After having a conversation:
 
@@ -149,6 +165,7 @@ After having a conversation:
    - Analyze the transcript and extract knowledge
    - Create/update semantic memory files
    - Launch the Reviewer agent to validate output
+   - Generate a review report in `.claude/agents/reports/`
    - Commit approved changes to git
 
 ## Project Structure
@@ -164,10 +181,13 @@ After having a conversation:
 │  │  │  │        ├── 250929_EP_1.json (example episodic memory file)
 │  │  │  ├── relationship-typology.yaml
 │  │  │  └── semantic (examples of semantic memory files)
+│  │  ├── reports
+│  │  │  └── memory-review-report_250929_EP_1.md
 │  │  ├── semantic-synthesist-reviewer.md
 │  │  └── semantic-synthesist.md
 │  ├── commands
 │  │  ├── create-memories.md
+│  │  ├── prime-memories.md
 │  ├── hooks
 │  │  ├── config
 │  │  │  └── hooks_config.yaml
@@ -242,6 +262,33 @@ Each item includes source episode notation: `[<episode_id>]`
 
 ## Commands
 
+### `/prime-memories [user_name] [agent_name]`
+
+Primes the current session with semantic memory access and identity context.
+
+**Arguments:**
+- `[user_name]`: Optional. The name of the current user (auto-inferred from configuration if not provided)
+- `[agent_name]`: Optional. The name of the agent persona (auto-inferred from configuration if not provided)
+
+**What it does:**
+1. Lists the semantic memory directory structure
+2. Loads the semantic memory for the specified user and agent
+3. Displays a summary of what the agent remembers about itself and the user
+4. Shows an action register with current tasks and priorities
+5. Configures the agent to automatically read relevant semantic memories when entities are mentioned
+
+**Example usage:**
+```
+/prime-memories
+/prime-memories Saito The-Architect
+```
+
+**Behavior after priming:**
+- Agent identifies itself with the specified agent name
+- Agent refers to you by your specified user name
+- Agent automatically reads semantic memory files when relevant entities are discussed
+- Agent maintains memory awareness throughout the session
+
 ### `/create-memories <episode_id>`
 
 Synthesizes semantic knowledge from an episodic memory transcript.
@@ -253,7 +300,8 @@ Synthesizes semantic knowledge from an episodic memory transcript.
 1. Retrieves timestamp
 2. Tasks the Semantic Synthesist agent with the episode
 3. Tasks the Reviewer agent to validate output
-4. Returns the final review report
+4. Generates a review report in `.claude/agents/reports/`
+5. Returns the final review summary
 
 ## Agents
 
